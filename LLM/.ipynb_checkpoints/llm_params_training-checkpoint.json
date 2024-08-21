@@ -1,0 +1,16 @@
+{
+  "model_name_or_path": "codellama/CodeLlama-7b-Instruct-hf",
+  "per_device_train_batch_size": 1,
+    "per_device_eval_batch_size": 1,
+    "use_4bit_double_quant": false,
+    "use_8bit_quant": false,
+    "output_dir": "LLM/rawtrainedmodel",
+    "with_tracking": true,
+    "report_to": "wandb",
+    "checkpointing_steps": "50percent",
+    "num_train_epochs": 100,
+    "max_eval_steps": 10,
+    "train_file": "Data/DatasetSample_Cpp.json",
+    "do_train" : true,
+    "do_eval" : true
+}

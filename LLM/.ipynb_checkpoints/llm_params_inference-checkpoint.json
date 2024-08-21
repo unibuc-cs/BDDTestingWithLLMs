@@ -1,0 +1,18 @@
+{
+  "model_name_or_path": "codellama/CodeLlama-7b-Instruct-hf",
+  "pretrained_peft_adapter_dir": "",
+  "train_file": "LLM/Data/test_data.json",
+  "generation_params": {
+    "device_map": "auto",
+    "max_new_tokens": 4096,
+    "num_return_sequences": 1,
+    "repetition_penalty": 1.0,
+    "length_penalty": 1,
+    "min_length": null,
+    "do_sample": false,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "do_train" : false,
+    "do_eval" : true
+  }
+}
