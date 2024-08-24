@@ -2,7 +2,8 @@ from LLM.LLMSupport import *
 from typing import Union, Tuple, List, Dict, Any, Optional
 import os
 from pprint import pprint
-
+import json
+from LLM.utils import fill_regex_with_dictvalues
 
 import transformers as tr
 print(tr.__version__)
@@ -20,6 +21,38 @@ class BDDGenerationWithLLM:
         #self.llm.do_inference(prompt=prompt)
         pass
 
+
+
+
+    # This is the result of the matching.
+    # It contains the step found and the parameters matched in plain strings
+    # The parameters are in a dictionary with the key being the parameter name and the value the matched value
+    # If the step was not found, the step_found is None
+    # If the parameters were not matched, the params_matched is None
+    # The step_msg and params_msg are the raw outputs from the model
+    class MatchingInputResult:
+        def __init__(self):
+            self.step_found : Union[str, None] = None
+            self.step_msg : str = ""
+
+            self.params_matched : Union[Dict[str,Any], None] = None
+            self.params_msg : str = ""
+            self.filled_step : str = None
+
+
+        def __repr__(self):
+            if self.step_found is None:
+                return f"I was unable to identify the step. The raw output is: {self.step_msg}"
+            else:
+                if self.params_matched is None:
+                    return (f"The step found is: {self.step_found}.\n"
+                            f"But I was unable to identify the parameters. The raw output is: {self.params_msg}")
+                else:
+                    return (f"The step found is: {self.step_found}.\n"
+                            f"The parameters matched are: {self.params_matched}.\n"
+                            f"The filled step is: {self.filled_step}.\n")
+
+
     # NOTE: this is the internal func, the public is below this
     # Takes an input step in natural language and tries to match against a set of available input steps in a Gherkin file.
     # Two steps are used in the process:
@@ -28,14 +61,16 @@ class BDDGenerationWithLLM:
     def _match_input_step_to_set(self,
                                  USER_INPUT_STEP: str,
                                  USER_INPUT_AVAILABLE_STEPS: str,
-                                 max_generated_tokens: int = 1024) -> Tuple[bool, str]:
+                                 max_generated_tokens: int = 1024) -> MatchingInputResult:
 
-        match_rewrite_prompt_template = """Given the below Gherkin available steps, check if any can match the input step. 
+        result = self.MatchingInputResult()
+
+        match_rewrite_prompt_template = """Given the below Gherkin available steps, check if any is close the input step and return it copy pasted.
 
         Use Json syntax for response. Use the following format if any step can be matched:
         {{
           "found": true,
-          "step_found":  "the step you found closest"
+          "step_found":  the step you found
         }}
 
         If no available option is OK, then use:
@@ -51,10 +86,11 @@ class BDDGenerationWithLLM:
         ### Available steps:
         {user_input_available_steps}"""
 
-        prompt_matching_params_template = """Can you match the parameters in the input text step with the target step ?
+        prompt_matching_params_template = """Can you extract the parameter names from the target and extract their values using the input?
+        Put the values in a Json format as in the example below. 
 
         Example:
-        ### Input: The plane has a travel speed of 123 km/h and a lenght of 500 m
+        ### Input: The plane has a travel speed of 123 km/h and a length of 500 m
         ### Target: @given(A plane that has a (?P<speed>\d+) km/h, length (?P<size>\d+) m
         Response:
         {{
@@ -74,10 +110,12 @@ class BDDGenerationWithLLM:
         match_rewrite_prompt = match_rewrite_prompt_template.format(user_input_step_to_match=USER_INPUT_STEP,
                                                                     user_input_available_steps=USER_INPUT_AVAILABLE_STEPS)
 
-        import json
-        res_match_step = self.llm.do_inference(match_rewrite_prompt, max_generated_tokens)["content"]
-        res_match_step = res_match_step.replace("\\", "\\\\")  # escape the backslashes
-        pprint(f"Plain result: {res_match_step}")
+
+        res_match_step = self.llm.do_inference(match_rewrite_prompt,
+                                               max_generated_tokens,
+                                               store_history=False)["content"]
+        #res_match_step = res_match_step.replace("\\", "\\\\")  # escape the backslashes
+        logger.info(f"Plain result: {res_match_step}")
 
         # Loading in json
         res_json = None
@@ -86,15 +124,21 @@ class BDDGenerationWithLLM:
             res_json = dir
         except Exception as e:
             msg = f"Error {e} when parsing the raw output:\n{res_match_step}"
-            pprint(msg)
-            return (False, msg)
+            logger.info(msg)
+
+            result.step_msg = msg
+            return result
 
         step_found_str = res_json.get("step_found", None)
+        result.step_found = step_found_str
 
         if step_found_str is not None:
             prompt_matching_params = prompt_matching_params_template.format(user_input_step=USER_INPUT_STEP,
                                                                             step_str=step_found_str)
-            res_match_params = self.llm.do_inference(prompt_matching_params, max_generated_tokens)["content"]
+
+            res_match_params = self.llm.do_inference(prompt_matching_params,
+                                                     max_generated_tokens,
+                                                     store_history=False)["content"]
             res_match_params = res_match_params.replace("\\", "\\\\")  # escape the backslashes
 
             # RESPONSE_TAG = "Response:"
@@ -107,31 +151,46 @@ class BDDGenerationWithLLM:
 
                 try:
                     resp_json = json.loads(resp_json_str)
-                    pprint(resp_json)
 
-                    return (True, resp_json)
 
+                    # Fill the step parameters found in the step step_found_str with the values found in resp_json
+                    msg = "The model found the parameters: {temp_resp}\n".format(temp_resp=resp_json)
+
+                    is_succeed, op_msg = fill_regex_with_dictvalues(step_found_str, resp_json)
+                    if is_succeed:
+                        msg += f"The filled step is: {op_msg}\n"
+                    else:
+                        msg += f"Error when filling the step: {op_msg}\n"
+
+                    result.params_matched = resp_json
+                    result.params_msg = msg
+                    result.filled_step = op_msg
+
+                    logger.info(resp_json)
+                    return result
                 except Exception as e:
                     msg = f"Error {e} when parsing for parameters:\n{resp_json_str}"
                     pprint(msg)
 
-                    return (False, msg)
+                    result.params_msg = msg
+                    return result
 
             msg = "The model didn't a valid match. The raw output is {temp_resp}".format(temp_resp=res_match_params)
-            pprint(msg)
-            return (False, msg)
+            logger.info(msg)
+            result.params_msg = msg
+            return result
         else:
             msg = ("Could not find the step matched, i.e., the string step_found. "
                    "The raw output is {step_found_str}").format(step_found_str=step_found_str)
-            pprint(msg)
-            return (False, msg)
+            logger.info(msg)
+            result.params_msg = msg
+            return result
 
-        assert False, "Should not reach here"
-        return (False, None)
+        return result
 
     def match_input_step_to_set(self,
                                 USER_INPUT_STEP: str,
-                                max_generated_tokens: int = 1024) -> Tuple[bool, str]:
+                                max_generated_tokens: int = 1024) -> MatchingInputResult:
 
         # TODO: take from file with source code
         USER_INPUT_AVAILABLE_STEPS = """@given("the car has (?P<engine_power>\d+) kw, weighs (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
@@ -156,16 +215,15 @@ class BDDGenerationWithLLM:
 
         @then("the car's heading should be (?P<heading>\d+) deg")"""
 
-        is_matched, resp = self._match_input_step_to_set(USER_INPUT_STEP,
+        match_rest : BDDGenerationWithLLM.MatchingInputResult = self._match_input_step_to_set(USER_INPUT_STEP,
                                                          USER_INPUT_AVAILABLE_STEPS,
                                                          max_generated_tokens=1024)
 
-        return is_matched, resp
+        return match_rest
 
 
 if __name__ == '__main__':
     bdd_gen = BDDGenerationWithLLM()
-    is_matched, resp = bdd_gen.match_input_step_to_set("A drag of 123, a mass of 12345 kg, and an engine of 124kw the Yoda's vehicle has!")
-    pprint(is_matched)
-    pprint(resp)
+    match_res : BDDGenerationWithLLM.MatchingInputResult = bdd_gen.match_input_step_to_set("A drag of 123, a mass of 12345 kg, and an engine of 124kw the Yoda's vehicle has!")
+    logger.warning(f"Final result: {match_res}")
     pass
