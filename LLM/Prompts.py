@@ -10,6 +10,9 @@ Always add assert statements at the end of the test, at least one for each unit 
 
 # The target class signature is: {CLASS_SIGNATURE} - taken out from above prompt
 
+import langchain_core
+import langchain_core.prompts
+
 from langchain_core.prompts import PromptTemplate
 
 INFERENCE_PROMPT_TEMPLATE = PromptTemplate(template=INFERENCE_PROMPT_TEMPLATE,

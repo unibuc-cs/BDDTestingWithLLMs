@@ -1,16 +1,33 @@
+### Check to see if it works with LLAMA 3.1 :
+# https://langchain-ai.github.io/langgraph/how-tos/react-agent-structured-output/#define-graph
+
 from LLM.LLMSupport import *
 from typing import Union, Tuple, List, Dict, Any, Optional
 import os
 from pprint import pprint
 import json
-from LLM.utils import fill_regex_with_dictvalues
+from LLM.utils import fill_regex_with_dictvalues, extract_clauses
+from enum import Enum
 
 import transformers as tr
-print(tr.__version__)
+#print(tr.__version__)
+
+
+class GherkinStepType(Enum):
+    GIVEN = "GIVEN"
+    WHEN = "WHEN"
+    THEN = "THEN"
+    AND = "AND"
+    BUT = "BUT"
+
+    def __str__(self):
+        return self.value
 
 class BDDGenerationWithLLM:
     def __init__(self):
         # Read params and instantiate the LLM
+        self._source_code_clauses = None
+        self._source_code_context = None
         args = parse_args(with_json_args=pathlib.Path(os.environ["LLM_PARAMS_PATH_INFERENCE"]))
         self.llm = BDDTestingLLM(args)
         self.llm.prepare_inference(push_to_hub=False)
@@ -20,8 +37,6 @@ class BDDGenerationWithLLM:
         # Generate a BDD test
         #self.llm.do_inference(prompt=prompt)
         pass
-
-
 
 
     # This is the result of the matching.
@@ -37,7 +52,8 @@ class BDDGenerationWithLLM:
 
             self.params_matched : Union[Dict[str,Any], None] = None
             self.params_msg : str = ""
-            self.filled_step : str = None
+            self.filled_step : str = ""
+            self.warning_msg : str = ""
 
 
         def __repr__(self):
@@ -46,12 +62,13 @@ class BDDGenerationWithLLM:
             else:
                 if self.params_matched is None:
                     return (f"The step found is: {self.step_found}.\n"
-                            f"But I was unable to identify the parameters. The raw output is: {self.params_msg}")
+                            f"But I was unable to identify the parameters. The raw output is: {self.params_msg}\n"
+                            f"WARNINGS: {self.warning_msg}\n" if self.warning_msg.strip() != "" else "")
                 else:
                     return (f"The step found is: {self.step_found}.\n"
                             f"The parameters matched are: {self.params_matched}.\n"
-                            f"The filled step is: {self.filled_step}.\n")
-
+                            f"The filled step is: {self.filled_step}.\n"
+                            f"WARNINGS: {self.warning_msg}\n" if self.warning_msg.strip() != "" else "")
 
     # NOTE: this is the internal func, the public is below this
     # Takes an input step in natural language and tries to match against a set of available input steps in a Gherkin file.
@@ -59,13 +76,14 @@ class BDDGenerationWithLLM:
     # Step 1: try to find the closest in terms of matching
     # Step 2: try to match parameters. Report the error if not succeeded
     def _match_input_step_to_set(self,
-                                 USER_INPUT_STEP: str,
+                                 USER_INPUT_STEP_CONTENT: str,
+                                 USER_INPUT_STEP_TYPE: GherkinStepType,
                                  USER_INPUT_AVAILABLE_STEPS: str,
                                  max_generated_tokens: int = 1024) -> MatchingInputResult:
 
         result = self.MatchingInputResult()
 
-        match_rewrite_prompt_template = """Given the below Gherkin available steps, check if any is close the input step and return it copy pasted.
+        match_rewrite_prompt_template = """Given the below Gherkin available steps, check if any {user_step_type} step is close to the input step and return it. Do not write code, just provide the step you found.
 
         Use Json syntax for response. Use the following format if any step can be matched:
         {{
@@ -86,8 +104,8 @@ class BDDGenerationWithLLM:
         ### Available steps:
         {user_input_available_steps}"""
 
-        prompt_matching_params_template = """Can you extract the parameter names from the target and extract their values using the input?
-        Put the values in a Json format as in the example below. 
+        prompt_matching_params_template = """Given the gherkin step in the target, your task is to extract the parameters and assign them values using the input sentence.
+        Do not write code, just provide the values in a Json format as in the example below. 
 
         Example:
         ### Input: The plane has a travel speed of 123 km/h and a length of 500 m
@@ -96,6 +114,15 @@ class BDDGenerationWithLLM:
         {{
          "speed" : "123 km/h",
          "size" : "500 m"
+        }}
+        
+        Another example with template variables (e.g., <variable>) that you need to copy in the result as below if used:
+        ### Input: The plane has a travel speed of <speed> km/h and a length of <size> m
+        ### Target: @given(A plane that has a (?P<speed>\d+) km/h, length (?P<size>\d+) m
+        Response:
+        {{
+         "speed" : <speed>,
+         "size" : <size>,
         }}
 
         Your task:
@@ -107,15 +134,18 @@ class BDDGenerationWithLLM:
         Do not write anything else.
         """
 
-        match_rewrite_prompt = match_rewrite_prompt_template.format(user_input_step_to_match=USER_INPUT_STEP,
+        match_rewrite_prompt = match_rewrite_prompt_template.format(user_input_step_to_match=USER_INPUT_STEP_CONTENT,
+                                                                    user_step_type= str(USER_INPUT_STEP_TYPE), #"USER_INPUT_STEP_TYPE,
                                                                     user_input_available_steps=USER_INPUT_AVAILABLE_STEPS)
 
 
         res_match_step = self.llm.do_inference(match_rewrite_prompt,
                                                max_generated_tokens,
                                                store_history=False)["content"]
-        #res_match_step = res_match_step.replace("\\", "\\\\")  # escape the backslashes
-        logger.info(f"Plain result: {res_match_step}")
+        res_match_step = res_match_step.replace("\\", "\\\\")  # escape the backslashes
+        res_match_step = res_match_step.replace("\'\"", "\"")  # replace the single + double quotes with double quotes
+        res_match_step = res_match_step.replace("'\n", "\n")  # replace the single + new line with nothing
+        logger.warning(f"Plain result: {res_match_step}")
 
         # Loading in json
         res_json = None
@@ -123,8 +153,10 @@ class BDDGenerationWithLLM:
             dir = json.loads(res_match_step)
             res_json = dir
         except Exception as e:
+
+
             msg = f"Error {e} when parsing the raw output:\n{res_match_step}"
-            logger.info(msg)
+            logger.warning(msg)
 
             result.step_msg = msg
             return result
@@ -133,7 +165,9 @@ class BDDGenerationWithLLM:
         result.step_found = step_found_str
 
         if step_found_str is not None:
-            prompt_matching_params = prompt_matching_params_template.format(user_input_step=USER_INPUT_STEP,
+            step_found = step_found_str.replace("\\\\", "\\") # unescape the backslashes
+
+            prompt_matching_params = prompt_matching_params_template.format(user_input_step=USER_INPUT_STEP_CONTENT,
                                                                             step_str=step_found_str)
 
             res_match_params = self.llm.do_inference(prompt_matching_params,
@@ -156,17 +190,21 @@ class BDDGenerationWithLLM:
                     # Fill the step parameters found in the step step_found_str with the values found in resp_json
                     msg = "The model found the parameters: {temp_resp}\n".format(temp_resp=resp_json)
 
-                    is_succeed, op_msg = fill_regex_with_dictvalues(step_found_str, resp_json)
+                    is_succeed, op_msg, warning_msg = fill_regex_with_dictvalues(step_found_str, resp_json)
                     if is_succeed:
                         msg += f"The filled step is: {op_msg}\n"
                     else:
                         msg += f"Error when filling the step: {op_msg}\n"
 
+                    if warning_msg.strip() != "":
+                        msg += f"Warnings:\n {warning_msg}\n"
+
                     result.params_matched = resp_json
                     result.params_msg = msg
                     result.filled_step = op_msg
+                    result.warning_msg = warning_msg
 
-                    logger.info(resp_json)
+                    logger.warning(resp_json)
                     return result
                 except Exception as e:
                     msg = f"Error {e} when parsing for parameters:\n{resp_json_str}"
@@ -176,54 +214,94 @@ class BDDGenerationWithLLM:
                     return result
 
             msg = "The model didn't a valid match. The raw output is {temp_resp}".format(temp_resp=res_match_params)
-            logger.info(msg)
+            logger.warning(msg)
             result.params_msg = msg
             return result
         else:
             msg = ("Could not find the step matched, i.e., the string step_found. "
                    "The raw output is {step_found_str}").format(step_found_str=step_found_str)
-            logger.info(msg)
+            logger.debug(msg)
             result.params_msg = msg
             return result
 
         return result
 
+    # Takes an input step in natural language and tries to match against a set of available input steps in a Gherkin file.
+    # Two steps are used in the process:
+    # Step 1: try to find the closest in terms of matching
+    # Step 2: try to match parameters. Report the error if not succeeded
     def match_input_step_to_set(self,
-                                USER_INPUT_STEP: str,
+                                USER_INPUT_STEP_CONTENT: str,
+                                USER_INPUT_STEP_TYPE : GherkinStepType,
+                                USER_INPUT_AVAILABLE_STEPS: Union[str, None],
                                 max_generated_tokens: int = 1024) -> MatchingInputResult:
 
-        # TODO: take from file with source code
-        USER_INPUT_AVAILABLE_STEPS = """@given("the car has (?P<engine_power>\d+) kw, weighs (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
+        key = None
+        match USER_INPUT_STEP_TYPE:
+            case GherkinStepType.GIVEN:
+                key = "given"
+            case GherkinStepType.THEN:
+                key = "then"
+            case GherkinStepType.WHEN:
+                key = "when"
 
-        @given("a frontal area of (?P<area>.+) m\^2")
+        assert key is not None, "No valid step type was provided"
 
-        @when("I accelerate to (?P<speed>\d+) km/h")
+        USER_INPUT_AVAILABLE_STEPS = USER_INPUT_AVAILABLE_STEPS \
+            if USER_INPUT_AVAILABLE_STEPS else self._source_code_clauses[key]
+        assert USER_INPUT_AVAILABLE_STEPS is not None, "No valid steps to match against user input were provided"
 
-        @then("the time should be within (?P<precision>[\d\.]+)s of (?P<time>[\d\.]+)s")
-
-        @given("that the car is moving at (?P<speed>\d+) m/s")
-
-        @when("I brake at (?P<brake_force>\d+)% force")
-
-        @step("(?P<seconds>\d+) seconds? pass(?:es)?")
-
-        @then("I should have traveled less than (?P<distance>\d+) meters")
-
-        @given("that the car's heading is (?P<heading>\d+) deg")
-
-        @when("I turn (?P<direction>left|right) at a yaw rate of (?P<rate>\d+) deg/sec for (?P<duration>\d+) seconds")
-
-        @then("the car's heading should be (?P<heading>\d+) deg")"""
-
-        match_rest : BDDGenerationWithLLM.MatchingInputResult = self._match_input_step_to_set(USER_INPUT_STEP,
-                                                         USER_INPUT_AVAILABLE_STEPS,
-                                                         max_generated_tokens=1024)
+        match_rest: BDDGenerationWithLLM.MatchingInputResult = (self._match_input_step_to_set
+                                                                 (USER_INPUT_STEP_CONTENT = USER_INPUT_STEP_CONTENT,
+                                                                  USER_INPUT_STEP_TYPE=GherkinStepType.GIVEN,
+                                                                    USER_INPUT_AVAILABLE_STEPS=USER_INPUT_AVAILABLE_STEPS,
+                                                                max_generated_tokens=max_generated_tokens))
 
         return match_rest
+
+    def set_source_code_context(self, source_code_dirs: List[Path]) -> None:
+        self._source_code_context = source_code_dirs
+        self._source_code_clauses = {}
+        for path in source_code_dirs:
+            clauses = extract_clauses(str(path))
+            self._source_code_clauses.update(clauses)
 
 
 if __name__ == '__main__':
     bdd_gen = BDDGenerationWithLLM()
-    match_res : BDDGenerationWithLLM.MatchingInputResult = bdd_gen.match_input_step_to_set("A drag of 123, a mass of 12345 kg, and an engine of 124kw the Yoda's vehicle has!")
+    bdd_gen.set_source_code_context([Path("./car-behave-master")])
+
+    #USER_INPUT_STEP_CONTENT = "A drag of 123, a mass of 12345 kg, and an engine of 124kw the Yoda's vehicle has!"
+
+    USER_INPUT_STEP_CONTENT = "A drag coefficient of <drag>, a mass of <mass> kg, and an engine of <power> kw the Yoda's vehicle has!"
+
+    # TODO: take from file with source code
+    #
+    # USER_INPUT_AVAILABLE_STEPS = """@given("the car has (?P<engine_power>\d+) kw, weighs (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
+    #
+    # @given("a frontal area of (?P<area>.+) m\^2")
+    #
+    # @when("I accelerate to (?P<speed>\d+) km/h")
+    #
+    # @then("the time should be within (?P<precision>[\d\.]+)s of (?P<time>[\d\.]+)s")
+    #
+    # @given("that the car is moving at (?P<speed>\d+) m/s")
+    #
+    # @when("I brake at (?P<brake_force>\d+)% force")
+    #
+    # @step("(?P<seconds>\d+) seconds? pass(?:es)?")
+    #
+    # @then("I should have traveled less than (?P<distance>\d+) meters")
+    #
+    # @given("that the car's heading is (?P<heading>\d+) deg")
+    #
+    # @when("I turn (?P<direction>left|right) at a yaw rate of (?P<rate>\d+) deg/sec for (?P<duration>\d+) seconds")
+    #
+    # @then("the car's heading should be (?P<heading>\d+) deg")"""
+    #
+
+
+    match_res : BDDGenerationWithLLM.MatchingInputResult = bdd_gen.match_input_step_to_set(USER_INPUT_STEP_CONTENT = USER_INPUT_STEP_CONTENT,
+                                                                                             USER_INPUT_STEP_TYPE=GherkinStepType.GIVEN,
+                                                                                             USER_INPUT_AVAILABLE_STEPS=None)
     logger.warning(f"Final result: {match_res}")
-    pass

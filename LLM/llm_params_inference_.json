@@ -1,0 +1,26 @@
+{
+  "config_name": "",
+  "tokenizer_name": "",
+  "model_name_or_path": "google/gemma-2b",
+  "pretrained_peft_adapter_dir": "",
+  "train_file": "LLM/Data/test_data.json",
+  "trust_remote_code": true,
+  "use_slow_tokenizer": false,
+  "use_4bit_quant": false,
+  "use_4bit_double_quant": false,
+  "use_8bit_quant": false,
+  "dataset_useonline": false,
+  "generation_params": {
+    "device_map": "auto",
+    "max_new_tokens": 4096,
+    "num_return_sequences": 1,
+    "repetition_penalty": 1.0,
+    "length_penalty": 1,
+    "min_length": null,
+    "do_sample": false,
+    "temperature": 0.0,
+    "top_p": 1.0,
+    "do_train" : false,
+    "do_eval" : true
+  }
+}

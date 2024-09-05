@@ -2,7 +2,7 @@ import sys
 sys.path.append("LLM")
 
 import logging
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 from datetime import datetime
 import Prompts
 import json
@@ -30,7 +30,7 @@ from accelerate import Accelerator
 from transformers.generation import TextStreamer
 
 import logging
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 
 
 ################## REMOVE Repo before commit !!!!!!!!!!!!!!!!!
@@ -108,6 +108,7 @@ class BDDTestingLLM:
                           #"rope_scaling": {"type": "extended", "factor": 8.0}
                           },
             trust_remote_code=self.args.trust_remote_code,
+            #_attn_implementation='eager',
             token=Prompts.USER_HF_TOKEN,
             device_map="auto",
 
@@ -116,6 +117,10 @@ class BDDTestingLLM:
 
         self.model = self.pipeline.model
         self.tokenizer = self.pipeline.tokenizer
+
+        if self.tokenizer is None:
+            self.tokenizer = AutoTokenizer.from_pretrained(self.args.tokenizer_name,
+                                                           token=Prompts.USER_HF_TOKEN)
 
 
         # Set the terminators

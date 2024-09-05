@@ -4,7 +4,7 @@ from hamcrest import assert_that, close_to, greater_than, less_than, equal_to
 use_step_matcher('re')
 
 
-@given("the car has (?P<engine_power>\d+) kw, weighs (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
+@given("the car has (?P<engine_power>\d+) kw, weights (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
 def step_impl(context, engine_power, weight, drag):
     context.car.engine_power = float(engine_power)
     context.car.weight = float(weight)

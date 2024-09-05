@@ -1,7 +1,7 @@
 # To the contribution of this development, the following sources were used: Hugging Face, Accelerate, and the Transformers library
 # The documentation and tutorials helped me to understand the code and adapt it to my needs.
 import logging
-logging.getLogger().setLevel(logging.INFO)
+logging.getLogger().setLevel(logging.DEBUG)
 import types
 import argparse
 import os.path
@@ -22,7 +22,7 @@ from transformers import (
 import logging
 from accelerate.logging import get_logger
 logger = get_logger(__name__)
-logger.setLevel(logging.INFO)
+logger.setLevel(logging.DEBUG)
 
 #import projsecrets
 #from projsecrets import project_path
