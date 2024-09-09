@@ -21,6 +21,10 @@
     "temperature": 0.0,
     "top_p": 1.0,
     "do_train" : false,
-    "do_eval" : true
+    "do_eval" : true,
+    "dataset_useonline": false,
+    "validation_split_percentage": 5,
+    "preprocessing_num_workers": 1,
+    "resume_from_checkpoint" : false
   }
 }

@@ -107,7 +107,7 @@ class BDDTestingLLM:
             model_kwargs={"torch_dtype": torch.bfloat16,
                           #"rope_scaling": {"type": "extended", "factor": 8.0}
                           },
-            trust_remote_code=self.args.trust_remote_code,
+            #trust_remote_code=self.args.trust_remote_code,
             #_attn_implementation='eager',
             token=Prompts.USER_HF_TOKEN,
             device_map="auto",
@@ -163,7 +163,7 @@ class BDDTestingLLM:
                 device_map="auto",
                 #low_cpu_mem_usage=self.args.low_cpu_mem_usage,
                 torch_dtype=self.torch_dtype,
-                trust_remote_code=self.args.trust_remote_code,
+                #trust_remote_code=self.args.trust_remote_code,
                 attn_implementation=self.attn_implementation
             )
         else:
@@ -288,7 +288,7 @@ class BDDTestingLLM:
             return prompt_and_answers_tokenized
 
         def get_full_prompt_from_instruction_and_response(instruction, response):
-            return f"### Instruction:{instruction}\n ### Answer:{response}\n"
+            return f"### Instruction:{instruction}\n ### Answer: {response}\n"
 
         def format_entries(examples, add_answer):
             # Transform the dataset to have a single column called 'text' by providing a tuple for each example
@@ -332,7 +332,8 @@ class BDDTestingLLM:
             elif idx == 1:
                 self.eval_dataset = raw_dataset
 
-        if self.args.block_size is None:
+
+        if ("block_size" not in self.args.__dict__) or self.args.block_size is None:
             block_size = self.tokenizer.model_max_length
             # if block_size > self.config.max_position_embeddings:
             #     logger.error(
@@ -372,11 +373,7 @@ class BDDTestingLLM:
         wandb.login()
         wandb.init(project="game-unittest-llm")
 
-        max_seq_length = min(self.tokenizer.model_max_length, 1024)
-
-        # Get current time as str
-
-
+        # Get current time as string
         run_name = f"game-unittest-llm_{datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}"
 
         training_args = TrainingArguments(
@@ -429,6 +426,9 @@ class BDDTestingLLM:
 
         data_collator = DataCollatorForCompletionOnlyLM(tokenizer=self.tokenizer, response_template=response_template)
 
+
+        max_seq_length = min(self.tokenizer.model_max_length, 8096)
+
         # Initialize our Trainer
         trainer = CustomTrainer(
             model=self.model,
@@ -441,8 +441,17 @@ class BDDTestingLLM:
             args=training_args,
         )
 
+
+
+        # Evaluation
+        results = {}
+        if self.args.do_eval:
+            logger.info("*** # First time Evaluate ***")
+            results = trainer.evaluate()
+
         # Training
         if self.args.do_train:
+            logger.info("*** Training.. ***")
             trainer.train(
                 resume_from_checkpoint=self.args.resume_from_checkpoint)
 

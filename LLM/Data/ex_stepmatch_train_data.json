@@ -4,7 +4,7 @@
         "Please select the one that is closest to input step. Do not provide any other information or text, just select a step and write it.",
         "",
         "Input step:",
-        "the plane has <power> kw, weighs <weight> kg",
+        "A mass of 123kg, drag of 123 of 500 kw this car has",
         "",
         "Available steps:",
         "@given(\"a frontal area of (?P<area>.+) m\\^2\")",
@@ -19,5 +19,6 @@
         "@when(\"I turn (?P<direction>left|right) at a yaw rate of (?P<rate>\\d+) deg/sec for (?P<duration>\\d+) seconds\")",
         "@then(\"the car's heading should be (?P<heading>\\d+) deg\")"
     ],
+
     "response": "@given(\\\"the car has (?P<engine_power>\\d+) kw, weighs (?P<weight>\\d+) kg, has a drag coefficient of (?P<drag>[\\.\\d]+)\\\")\""
 }

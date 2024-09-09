@@ -39,6 +39,12 @@ class BDDGenerationWithLLM:
         pass
 
 
+    def get_conv_hist(self) -> List[Dict]:
+        return self.llm.get_conv_hist()
+
+    def get_llm_pipe(self) -> tr.Pipeline:
+        return self.llm.pipeline
+
     # This is the result of the matching.
     # It contains the step found and the parameters matched in plain strings
     # The parameters are in a dictionary with the key being the parameter name and the value the matched value
