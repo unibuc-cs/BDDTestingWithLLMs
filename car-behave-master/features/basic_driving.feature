@@ -13,8 +13,7 @@ Feature: Simulate a basic car
   Scenario Outline: The car should accelerate at roughly the right rate
     If we take the car's power, weight, and aerodynamic data, we should be able
     to simulate it's acceleration somewhat accurately (let's say within 0.5 seconds)
-
-    Given the car has <power> kw, weighs <weight> kg, has a drag coefficient of <drag>
+    Given the car has <power> kw, weights <weight> kg, has a drag coefficient of <drag>
     And a frontal area of <area> m^2
     When I accelerate to 100 km/h
     Then the time should be within 0.5s of <time>s

@@ -7,13 +7,13 @@ import os
 from pprint import pprint
 import json
 from LLM.utils import fill_regex_with_dictvalues, extract_clauses
-from enum import Enum
+from enum import StrEnum
 
 import transformers as tr
 #print(tr.__version__)
 
 
-class GherkinStepType(Enum):
+class GherkinStepType(StrEnum):
     GIVEN = "GIVEN"
     WHEN = "WHEN"
     THEN = "THEN"
@@ -31,6 +31,7 @@ class BDDGenerationWithLLM:
         args = parse_args(with_json_args=pathlib.Path(os.environ["LLM_PARAMS_PATH_INFERENCE"]))
         self.llm = BDDTestingLLM(args)
         self.llm.prepare_inference(push_to_hub=False)
+        
 
     # The BIG TODO :)
     def generate_bdd(self, prompt):
@@ -38,9 +39,20 @@ class BDDGenerationWithLLM:
         #self.llm.do_inference(prompt=prompt)
         pass
 
-
     def get_conv_hist(self) -> List[Dict]:
-        return self.llm.get_conv_hist()
+        return self.llm.full_conv_history
+    
+    def stack_current_conversation(self):
+        self.llm.full_conv_history.stack_current_conversation()
+
+    def pop_current_conversation(self):
+        self.llm.full_conv_history.pop_current_conversation()
+
+    def reset_conversation(self):
+        self.llm.full_conv_history.reset()
+
+    def get_llm(self) -> tr.AutoModelForCausalLM:
+        return self.llm.model
 
     def get_llm_pipe(self) -> tr.Pipeline:
         return self.llm.pipeline

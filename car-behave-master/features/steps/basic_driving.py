@@ -4,11 +4,61 @@ from hamcrest import assert_that, close_to, greater_than, less_than, equal_to
 use_step_matcher('re')
 
 
+class Map:
+    def __init__(self, name):
+        self.params = None
+        self.name = name
+
+    def load(self, params):
+        self.params = params
+        return None
+
+class Car:
+    def __init__(self):
+        self.engine_power = 0.0
+        self.weight = 0.0
+        self.drag = 0.0
+        self.frontal_area = 0.0
+        self.speed = 0.0
+        self.heading = 0.0
+        self.road_inclination = 0.0
+        self.road_condition = 1.0
+        self.brake_force = 0.0
+        self.yaw_rate = 0.0
+        self.time = 0.0
+        self.odometer = 0.0
+
+
+class ObjLib:
+    @classmethod
+    def LoadMap(cls, param) -> Map:
+        return Map(param)
+
+    @classmethod
+    def GetCar(cls) -> Car:
+        return Car()
+
+
 @given("the car has (?P<engine_power>\d+) kw, weights (?P<weight>\d+) kg, has a drag coefficient of (?P<drag>[\.\d]+)")
 def step_impl(context, engine_power, weight, drag):
     context.car.engine_power = float(engine_power)
     context.car.weight = float(weight)
     context.car.drag = float(drag)
+
+
+
+@given("We start a game instance on default test map")
+def step_impl(context):
+    context.car = ObjLib.GetCar()
+    context.map =ObjLib.LoadMap("test_map")
+
+@given("the car has (?P<engine_power>\d+) kw, weights (?P<weight>\d+) kg,"
+       "has a drag coefficient of (?P<drag>\d+)")
+def step_impl(context, engine_power, weight, drag):
+    context.car.engine_power = float(engine_power)
+    context.car.weight = float(weight)
+    context.car.drag = float(drag)
+
 
 
 @given("a frontal area of (?P<area>.+) m\^2")
@@ -104,9 +154,14 @@ def step_impl(context, direction, rate, duration):
 
     context.car.simulate(duration)
 
-@then("the time should be within (?P<precision>[\d\.]+)s of (?P<time>[\d\.]+)s")
+@then("the time should be within a range of (?P<precision>[\d\.]+)s of (?P<time>[\d\.]+)s")
 def step_impl(context, precision, time):
     assert_that(context.car.time, close_to(float(time), float(precision)))
+
+@then("the time should be within a range of 0.5s of (?P<time>\d+)s")
+def step_impl(context, precision, time):
+    assert_that(context.car.time, close_to(float(time), float(precision)))
+
 
 
 @step("(?P<seconds>\d+) seconds? pass(?:es)?")
